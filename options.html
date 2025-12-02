@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extension Options</title>
+    <link rel="stylesheet" href="options.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Extension Options</h1>
+        <form id="optionsForm">
+            <div class="form-group">
+                <label for="monitorFrequency">Monitor Frequency (ms):</label>
+                <input type="number" id="monitorFrequency" name="monitorFrequency" min="1000" step="100" value="5000">
+                <small>Frequency at which the extension checks for changes on neal.fun/infinite-craft.</small>
+            </div>
+            <div class="form-group">
+                <label for="emphasisStyle">New Text Emphasis Style:</label>
+                <select id="emphasisStyle" name="emphasisStyle">
+                    <option value="bold">Bold</option>
+                    <option value="italic">Italic</option>
+                    <option value="underline">Underline</option>
+                </select>
+                <small>Style to apply to new texts when generating prompts for SDXL.</small>
+            </div>
+            
+            <div class="section-header">
+                <h2>API Keys</h2>
+            </div>
+            
+            <div class="form-group">
+                <label for="openaiApiKey">LLM API Key (Cerebras):</label>
+                <input type="password" id="openaiApiKey" name="openaiApiKey" placeholder="csk-...">
+                <small>Required for generating image prompts.</small>
+            </div>
+            <div class="form-group">
+                <label for="llmModel">LLM Model:</label>
+                <input type="text" id="llmModel" name="llmModel" value="gpt-4o-mini">
+                <small>The model to use (e.g., gpt-oss-120b).</small>
+            </div>
+            <div class="form-group">
+                <label for="falApiKey">FAL API Key:</label>
+                <input type="password" id="falApiKey" name="falApiKey" placeholder="key-...">
+                <small>Required for generating images with FAL.</small>
+            </div>
+            <div class="form-group">
+                <label for="replicateApiKey">Replicate API Key (Optional):</label>
+                <input type="password" id="replicateApiKey" placeholder="r8_...">
+                <small>Alternative image generation with Replicate.</small>
+            </div>
+
+            <div class="section-header">
+                <h2>Weave Tracing</h2>
+                <p class="section-desc">Track your LLM calls and image generations with Weights & Biases Weave.</p>
+            </div>
+
+            <div class="form-group">
+                <label for="wandbApiKey">W&B API Key:</label>
+                <input type="password" id="wandbApiKey" placeholder="Enter your W&B API key">
+                <div class="help-link">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <a href="https://wandb.ai/authorize" target="_blank" rel="noopener">Get your API key at wandb.ai/authorize</a>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="wandbTeam">W&B Team/Username:</label>
+                <input type="text" id="wandbTeam" placeholder="your-username-or-team">
+                <small>Your W&B username or team name (required for tracing).</small>
+            </div>
+            <div class="form-group">
+                <label for="weaveProject">Weave Project Name:</label>
+                <input type="text" id="weaveProject" placeholder="infinite-fun" value="infinite-fun">
+                <small>Project name for organizing traces in Weave.</small>
+            </div>
+
+            <button type="submit">Save Options</button>
+        </form>
+    </div>
+    <script src="options.js"></script>
+</body>
+</html>

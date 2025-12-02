@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "Cross-Tab Image Generator",
+  "version": "1.0",
+  "description": "A Chrome extension to monitor changes on neal.fun/infinite-craft and interact with fastsdxl.ai to generate and exchange images based on text changes.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.replicate.com/*",
+    "https://fal.run/*",
+    "https://trace.wandb.ai/*",
+    "https://api.cerebras.ai/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://neal.fun/infinite-craft/"
+      ],
+      "js": [
+        "nealFunContentScript.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://fastsdxl.ai/*"
+      ],
+      "js": [
+        "fastSdxlContentScript.js"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "images/icon2.png",
+      "48": "images/icon128.png",
+      "128": "images/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "images/icon2.png",
+    "48": "images/icon128.png",
+    "128": "images/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "images/icon2.png",
+        "images/icon128.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+/* General body styling */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 15px;
+    background-color: #f9f9f9;
+    width: 300px; /* Set a fixed width for the popup */
+}
+
+/* Popup content styling */
+#popup-content {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Title styling */
+#popup-content h1 {
+    color: #333;
+    font-size: 18px;
+    margin-top: 0;
+    margin-bottom: 20px;
+    text-align: center;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+}
+
+/* Setting group styling */
+.setting-group {
+    margin-bottom: 15px;
+}
+
+.setting-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: #666;
+    font-weight: 600;
+}
+
+.setting-group input[type="text"],
+.setting-group input[type="password"],
+.setting-group select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box; /* Ensure padding doesn't affect width */
+    font-size: 13px;
+}
+
+.setting-group input:focus,
+.setting-group select:focus {
+    border-color: #007bff;
+    outline: none;
+}
+
+/* Status message styling */
+#status-message {
+    margin-top: 10px;
+    min-height: 20px; /* Reserve space */
+    font-size: 12px;
+    text-align: center;
+}
+
+/* Button styling */
+#save-settings {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-top: 15px;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+
+#save-settings:hover {
+    background-color: #0056b3;
+}

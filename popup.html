@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extension Popup</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div id="popup-content">
+        <h1>Infinite Fun Settings</h1>
+        
+        <div class="setting-group">
+            <label for="openaiApiKey">OpenAI API Key</label>
+            <input type="password" id="openaiApiKey" placeholder="sk-...">
+        </div>
+
+        <div class="setting-group">
+            <label for="falApiKey">FAL API Key</label>
+            <input type="password" id="falApiKey" placeholder="key-...">
+        </div>
+
+        <div class="setting-group">
+            <label for="replicateApiKey">Replicate API Key</label>
+            <input type="password" id="replicateApiKey" placeholder="r8_...">
+        </div>
+
+        <div class="setting-group">
+            <label for="imageModel">Image Generation Model</label>
+            <select id="imageModel">
+                <option value="fal-z-image-turbo">FAL: z-image-turbo</option>
+                <option value="fal-fal-ai/nano-banana-pro">FAL: Nano Banana Pro</option>
+                <option value="fal-fal-ai/nano-banana">FAL: Nano Banana</option>
+                <option value="fal-fal-ai/bytedance/seedream/v4/text-to-image">FAL: Seedream v4</option>
+                <option value="fal-fal-ai/flux-2">FAL: Flux 2</option>
+                <option value="replicate-z-image-turbo">Replicate: z-image-turbo</option>
+                <option value="replicate-pruna-p-image">Replicate: Pruna p-image</option>
+            </select>
+        </div>
+
+        <div id="status-message"></div>
+        <button id="save-settings">Save Settings</button>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
