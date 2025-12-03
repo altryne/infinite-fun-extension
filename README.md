@@ -4,6 +4,9 @@ A Chrome extension that brings AI-powered image generation to [Neal Agarwal's In
 
 ![Weave Tracing](https://img.shields.io/badge/Traced%20with-Weave-blue?logo=weightsandbiases)
 
+![1202 (1)](https://github.com/user-attachments/assets/2e390eb2-60d0-4d6c-94eb-5e4ce471da75)
+
+
 ## What is this?
 
 This extension monitors your Infinite Craft gameplay and automatically generates stunning AI images based on the elements you create. It's a fun, novel way to:
@@ -20,6 +23,12 @@ This extension monitors your Infinite Craft gameplay and automatically generates
 - 📊 **Full observability with Weave**: Track every LLM call, token usage, and image generation
 
 ## Weave Integration
+
+
+
+https://github.com/user-attachments/assets/4bd5ec96-b22c-47bd-9842-3d53bda2a198
+
+
 
 This extension is fully instrumented with [Weights & Biases Weave](https://weave-docs.wandb.ai/) for observability. Every AI call is traced, letting you:
 
