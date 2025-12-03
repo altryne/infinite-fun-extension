@@ -10,6 +10,7 @@
   ],
   "host_permissions": [
     "https://api.replicate.com/*",
+    "https://replicate.delivery/*",
     "https://fal.run/*",
     "https://trace.wandb.ai/*",
     "https://api.cerebras.ai/*"

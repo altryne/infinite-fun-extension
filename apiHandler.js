@@ -1,12 +1,13 @@
 // apiHandler.js
-// This file is responsible for interactions with the FAL API for image generation
+// This file is responsible for interactions with the FAL and Replicate APIs for image generation
 
 /**
  * Function to generate an image based on the prompt using FAL API
+ * Returns both URL and base64 data when available
  * @param {string} prompt - The prompt for the image generation
  * @param {string} apiKey - The FAL API Key
  * @param {string} model - The FAL model path (e.g. 'fal-ai/z-image/turbo')
- * @returns {Promise<string>} - A promise that resolves with the image URL or base64 data
+ * @returns {Promise<{url: string, base64?: string, imageType: string}>}
  */
 async function getImageFromFal(prompt, apiKey, model) {
     // Default to z-image-turbo if no model provided or if it's the default string
@@ -31,7 +32,7 @@ async function getImageFromFal(prompt, apiKey, model) {
     }
 
     try {
-        // 1. Submit Request
+        // Request with sync_mode to get immediate result
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
@@ -42,7 +43,8 @@ async function getImageFromFal(prompt, apiKey, model) {
                 prompt: prompt,
                 seed: Math.floor(Math.random() * 10000000),
                 image_size: "landscape_4_3",
-                sync_mode: false // Request async to get URL
+                sync_mode: true,  // Get immediate result
+                output_format: "jpeg"  // jpeg is smaller than png
             }),
         });
 
@@ -51,24 +53,36 @@ async function getImageFromFal(prompt, apiKey, model) {
             throw new Error(`FAL API Error: ${JSON.stringify(errorData)}`);
         }
 
-        const initialData = await response.json();
-        console.log('FAL Initial Response:', initialData);
+        const data = await response.json();
+        console.log('FAL Response:', Object.keys(data));
 
-        // Check if we got an immediate result (even with sync_mode: false, some endpoints might do this)
-        if (initialData.images && initialData.images.length > 0) {
-            console.log('FAL returned immediate result');
-            return initialData.images[0].url;
+        if (data.images && data.images.length > 0) {
+            const image = data.images[0];
+            
+            // FAL returns url, and may also include base64 in content_type scenarios
+            const result = {
+                url: image.url,
+                imageType: 'jpeg'
+            };
+            
+            // If FAL returned base64 data directly (some endpoints do)
+            if (image.base64) {
+                result.base64 = image.base64;
+            }
+            
+            return result;
         }
 
-        const requestId = initialData.request_id;
+        // Fallback to polling if sync_mode didn't work
+        const requestId = data.request_id;
         if (!requestId) {
-            throw new Error(`FAL Response missing request_id: ${JSON.stringify(initialData)}`);
+            throw new Error(`FAL Response missing images and request_id: ${JSON.stringify(data)}`);
         }
 
-        // 2. Poll for Result
+        // Poll for Result
         let attempts = 0;
-        while (attempts < 20) { // Timeout after ~10 seconds
-            await new Promise(r => setTimeout(r, 500)); // Poll every 500ms
+        while (attempts < 20) {
+            await new Promise(r => setTimeout(r, 500));
             
             const statusResponse = await fetch(`${apiUrl}/requests/${requestId}`, {
                 method: 'GET',
@@ -85,9 +99,13 @@ async function getImageFromFal(prompt, apiKey, model) {
             
             if (statusData.status === 'COMPLETED') {
                 if (statusData.images && statusData.images.length > 0) {
-                    return statusData.images[0].url;
+                    return {
+                        url: statusData.images[0].url,
+                        base64: statusData.images[0].base64 || null,
+                        imageType: 'jpeg'
+                    };
                 }
-                throw new Error('No image URL in completed response');
+                throw new Error('No image in completed response');
             } else if (statusData.status === 'FAILED') {
                 throw new Error(`FAL Request Failed: ${statusData.error}`);
             }
@@ -105,10 +123,11 @@ async function getImageFromFal(prompt, apiKey, model) {
 
 /**
  * Function to generate an image based on the prompt using Replicate API
+ * Returns both URL and base64 data when available
  * @param {string} prompt - The prompt for the image generation
  * @param {string} apiKey - The Replicate API Key
  * @param {string} model - The model to use ('replicate-z-image-turbo' or 'replicate-pruna-p-image')
- * @returns {Promise<string>} - A promise that resolves with the image URL
+ * @returns {Promise<{url: string, base64?: string, imageType: string}>}
  */
 async function getImageFromReplicate(prompt, apiKey, model) {
     if (!apiKey) {
@@ -121,16 +140,15 @@ async function getImageFromReplicate(prompt, apiKey, model) {
 
     if (model === 'replicate-z-image-turbo') {
         apiUrl = 'https://api.replicate.com/v1/predictions';
-        // z-image-turbo version
         version = "7ea16386290ff5977c7812e66e462d7ec3954d8e007a8cd18ded3e7d41f5d7cf";
         input = {
             height: 768,
-            prompt: prompt
+            prompt: prompt,
+            output_format: "jpg"  // Request jpg for smaller size
         };
     } else if (model === 'replicate-pruna-p-image') {
         apiUrl = 'https://api.replicate.com/v1/models/prunaai/p-image/predictions';
-        version = null; // Model endpoint doesn't need version in body usually, but let's check docs if needed. 
-                        // The user provided curl uses model endpoint, so we use that.
+        version = null;
         input = {
             prompt: prompt
         };
@@ -138,22 +156,18 @@ async function getImageFromReplicate(prompt, apiKey, model) {
         throw new Error(`Unknown Replicate model: ${model}`);
     }
 
-    const body = {
-        input: input
-    };
-    
+    const body = { input };
     if (version) {
         body.version = version;
     }
 
     try {
-        // 1. Submit Request
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
-                'Prefer': 'wait' // Request to wait for result if possible
+                'Prefer': 'wait'
             },
             body: JSON.stringify(body),
         });
@@ -164,29 +178,55 @@ async function getImageFromReplicate(prompt, apiKey, model) {
         }
 
         let data = await response.json();
-        console.log('Replicate Initial Response:', data);
+        console.log('Replicate Response status:', data.status);
 
-        // Check if completed immediately (due to Prefer: wait)
+        // Helper to extract result
+        const extractResult = (output) => {
+            const url = Array.isArray(output) ? output[0] : output;
+            
+            // Check if it's a data URI (base64)
+            if (typeof url === 'string' && url.startsWith('data:image')) {
+                const match = url.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (match) {
+                    return {
+                        url: url,
+                        base64: match[2],
+                        imageType: match[1]
+                    };
+                }
+            }
+            
+            // Detect image type from URL
+            let imageType = 'jpeg';
+            if (url.includes('.png')) imageType = 'png';
+            if (url.includes('.webp')) imageType = 'webp';
+            
+            return {
+                url: url,
+                imageType: imageType
+            };
+        };
+
+        // Check if completed immediately
         if (data.status === 'succeeded' && data.output) {
-             // Output can be a string (URL) or array of strings
-             return Array.isArray(data.output) ? data.output[0] : data.output;
+            return extractResult(data.output);
         }
 
-        // 2. Poll for Result if not ready
-        const getUrl = data.urls.get;
+        // Poll for Result
+        const getUrl = data.urls?.get;
         if (!getUrl) {
-             throw new Error(`Replicate Response missing get url: ${JSON.stringify(data)}`);
+            throw new Error(`Replicate Response missing get url: ${JSON.stringify(data)}`);
         }
 
         let attempts = 0;
-        while (attempts < 40) { // Timeout after ~20 seconds
-            await new Promise(r => setTimeout(r, 500)); 
+        while (attempts < 40) {
+            await new Promise(r => setTimeout(r, 500));
             
             const statusResponse = await fetch(getUrl, {
                 method: 'GET',
                 headers: {
-                     'Authorization': `Bearer ${apiKey}`,
-                     'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
                 }
             });
 
@@ -197,11 +237,11 @@ async function getImageFromReplicate(prompt, apiKey, model) {
             data = await statusResponse.json();
             
             if (data.status === 'succeeded') {
-                return Array.isArray(data.output) ? data.output[0] : data.output;
+                return extractResult(data.output);
             } else if (data.status === 'failed') {
                 throw new Error(`Replicate Request Failed: ${data.error}`);
             } else if (data.status === 'canceled') {
-                 throw new Error('Replicate Request Canceled');
+                throw new Error('Replicate Request Canceled');
             }
             
             attempts++;

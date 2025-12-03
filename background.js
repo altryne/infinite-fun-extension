@@ -42,40 +42,6 @@ async function initWeave() {
     }
 }
 
-// Wrap functions for tracing
-const tracedGeneratePrompt = weave.op(async (texts, apiKey, model, previousPrompt) => {
-    const result = await generatePromptFromTexts(texts, apiKey, model, previousPrompt);
-    
-    // Attach usage data for Weave tracing (will be extracted and logged in summary)
-    if (result.usage) {
-        result._weaveUsage = weave.createLLMUsage(
-            result.model,
-            result.usage.prompt_tokens || 0,
-            result.usage.completion_tokens || 0
-        );
-    }
-    
-    return result;
-}, { name: 'generate_prompt' });
-
-const tracedGenerateImage = weave.op(async (prompt, settings) => {
-    let imageUrl;
-    if (settings.imageModel && settings.imageModel.startsWith('replicate')) {
-        imageUrl = await getImageFromReplicate(prompt, settings.replicateApiKey, settings.imageModel);
-    } else {
-        imageUrl = await getImageFromFal(prompt, settings.falApiKey, settings.imageModel);
-    }
-    
-    // Return with weave image metadata for tracing
-    if (imageUrl) {
-        return {
-            imageUrl: imageUrl,
-            weaveImage: await weave.weaveImage({ url: imageUrl })
-        };
-    }
-    return { imageUrl };
-}, { name: 'generate_image' });
-
 // Listen for messages from content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'updateTexts') {
@@ -146,29 +112,188 @@ async function handleUpdateTexts(texts, tabId) {
         }
 
         console.log('Generating prompt for texts:', texts);
-        console.log('Previous Prompt:', lastGeneratedPrompt);
-
-        const startLLM = Date.now();
         
-        // Generate Prompt using LLM (Traced)
-        const llmResult = await tracedGeneratePrompt(texts, settings.openaiApiKey, settings.llmModel, lastGeneratedPrompt);
-        const prompt = llmResult.prompt;
-        const durationLLM = Date.now() - startLLM;
-        console.log(`LLM Generation took ${durationLLM}ms`);
-        console.log('Generated Prompt:', prompt);
-        if (llmResult.usage) {
-            console.log('Token usage:', llmResult.usage);
+        // Extract element names for display
+        const elementNames = texts.map(t => t.text).join(', ');
+
+        // Start parent trace for the entire pipeline
+        const traceInputs = { elements: elementNames };
+        if (lastGeneratedPrompt) {
+            traceInputs.previous_prompt = lastGeneratedPrompt;
         }
+        const traceContext = await weave.startTrace('generate_creative_image', traceInputs);
 
-        // Update history
-        lastGeneratedPrompt = prompt;
-        // Persist to storage
-        chrome.storage.local.set({ lastGeneratedPrompt: prompt });
+        try {
+            // === LLM Call ===
+            const startLLM = Date.now();
+            const llmResult = await generatePromptFromTexts(texts, settings.openaiApiKey, settings.llmModel, lastGeneratedPrompt);
+            const durationLLM = Date.now() - startLLM;
+            
+            const prompt = llmResult.prompt;
+            console.log(`LLM Generation took ${durationLLM}ms`);
+            console.log('Generated Prompt:', prompt);
 
-        await generateAndSendImage(prompt, tabId, startTotal, durationLLM, settings);
+            // Update history
+            lastGeneratedPrompt = prompt;
+            chrome.storage.local.set({ lastGeneratedPrompt: prompt });
 
-        // Clear badge on success
-        chrome.action.setBadgeText({ text: '' });
+            // === Image Generation ===
+            const startImageGen = Date.now();
+            let imageResult;
+            if (settings.imageModel.startsWith('replicate')) {
+                imageResult = await getImageFromReplicate(prompt, settings.replicateApiKey, settings.imageModel);
+            } else {
+                imageResult = await getImageFromFal(prompt, settings.falApiKey, settings.imageModel);
+            }
+            const durationImageGen = Date.now() - startImageGen;
+
+            // Handle both new format {url, base64, imageType} and legacy string URL
+            const imageUrl = typeof imageResult === 'string' ? imageResult : imageResult.url;
+            const imageBase64 = typeof imageResult === 'object' ? imageResult.base64 : null;
+            const imageType = typeof imageResult === 'object' ? imageResult.imageType : 'jpeg';
+
+            const totalDuration = Date.now() - startTotal;
+            console.log(`Image Generation took ${durationImageGen}ms`);
+            console.log(`Total Pipeline took ${totalDuration}ms`);
+            console.log('Generated Image URL:', imageUrl);
+
+            // === SEND TO USER IMMEDIATELY ===
+            if (tabId) {
+                console.log('Sending updateBackground message to tab:', tabId);
+                chrome.tabs.sendMessage(tabId, {
+                    action: 'updateBackground',
+                    imageUrl: imageUrl,
+                    prompt: prompt,
+                    stats: {
+                        llm: durationLLM,
+                        imageGen: durationImageGen,
+                        total: totalDuration
+                    }
+                });
+            }
+
+            // Clear badge on success
+            chrome.action.setBadgeText({ text: '' });
+
+            // === TRACE IN BACKGROUND (fire and forget) ===
+            (async () => {
+                try {
+                    // If no base64 from API (e.g. Replicate), fetch and convert
+                    let traceBase64 = imageBase64;
+                    let traceImageType = imageType;
+                    
+                    if (!traceBase64 && imageUrl) {
+                        console.log('[Weave] Fetching image for trace...', imageUrl.substring(0, 50));
+                        try {
+                            const imgResponse = await fetch(imageUrl);
+                            if (imgResponse.ok) {
+                                // Get content type from response headers, fallback to URL detection
+                                const contentType = imgResponse.headers.get('content-type') || '';
+                                console.log('[Weave] Image content-type:', contentType);
+                                
+                                if (contentType.includes('png') || imageUrl.includes('.png')) traceImageType = 'png';
+                                else if (contentType.includes('webp') || imageUrl.includes('.webp')) traceImageType = 'webp';
+                                else if (contentType.includes('gif') || imageUrl.includes('.gif')) traceImageType = 'gif';
+                                else traceImageType = 'jpeg';
+                                
+                                // Use ArrayBuffer for more reliable binary handling
+                                const arrayBuffer = await imgResponse.arrayBuffer();
+                                const bytes = new Uint8Array(arrayBuffer);
+                                
+                                // Chunk-based base64 encoding to avoid stack overflow
+                                let binary = '';
+                                const chunkSize = 32768;
+                                for (let i = 0; i < bytes.length; i += chunkSize) {
+                                    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                                    binary += String.fromCharCode.apply(null, chunk);
+                                }
+                                traceBase64 = btoa(binary);
+                                
+                                console.log(`[Weave] Image encoded (${traceImageType}, ${Math.round(traceBase64.length / 1024)}KB, ${bytes.length} bytes)`);
+                            } else {
+                                console.warn('[Weave] Fetch failed:', imgResponse.status);
+                            }
+                        } catch (fetchErr) {
+                            console.warn('[Weave] Could not fetch image:', fetchErr);
+                        }
+                    }
+
+                    // Build messages for Weave chat UI
+                    const systemPrompt = `You are a Master Visual Storyteller creating vivid, cinematic image prompts from Infinite Craft elements.`;
+                    const userContent = `Elements: ${elementNames}`;
+                    const messages = [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userContent }
+                    ];
+
+                    // LLM child span
+                    const llmContext = await weave.startChildSpan('llm_completion', {
+                        messages: messages,
+                        model: settings.llmModel
+                    }, traceContext);
+                    
+                    await weave.endChildSpan(llmContext, {
+                        choices: [{ message: { content: prompt } }]
+                    }, llmResult.usage ? {
+                        [settings.llmModel]: {
+                            prompt_tokens: llmResult.usage.prompt_tokens || 0,
+                            completion_tokens: llmResult.usage.completion_tokens || 0,
+                            total_tokens: llmResult.usage.total_tokens || 0,
+                            requests: 1
+                        }
+                    } : null);
+
+                    // Build data URI for image display
+                    const dataUri = traceBase64 
+                        ? `data:image/${traceImageType};base64,${traceBase64}` 
+                        : null;
+
+                    // Image child span - includes image + URL
+                    const imgContext = await weave.startChildSpan('image_generation', {
+                        prompt: prompt,
+                        model: settings.imageModel
+                    }, traceContext);
+                    
+                    let imgOutput = { 
+                        model: settings.imageModel,
+                        image_url: imageUrl
+                    };
+                    if (dataUri) {
+                        imgOutput.image = { _weaveType: 'Image', data: dataUri, imageType: traceImageType };
+                    }
+                    await weave.endChildSpan(imgContext, imgOutput, null);
+
+                    // End parent trace - image as main display
+                    const parentOutput = {
+                        prompt: prompt,
+                        image_model: settings.imageModel
+                    };
+                    if (dataUri) {
+                        parentOutput.image = { _weaveType: 'Image', data: dataUri, imageType: traceImageType };
+                    }
+                    
+                    await weave.endTrace(traceContext, parentOutput, {
+                        usage: llmResult.usage ? {
+                            [settings.llmModel]: {
+                                prompt_tokens: llmResult.usage.prompt_tokens || 0,
+                                completion_tokens: llmResult.usage.completion_tokens || 0,
+                                total_tokens: llmResult.usage.total_tokens || 0,
+                                requests: 1
+                            }
+                        } : {}
+                    });
+                    
+                    console.log('[Weave] Tracing completed in background');
+                } catch (traceError) {
+                    console.error('[Weave] Background tracing error:', traceError);
+                }
+            })();
+
+        } catch (innerError) {
+            // End parent trace with error (fire and forget)
+            weave.endTrace(traceContext, { error: innerError.toString() }, {}).catch(() => {});
+            throw innerError;
+        }
 
     } catch (error) {
         console.error('Error in handleUpdateTexts:', error);
@@ -220,18 +345,134 @@ async function handleRegenerateImage() {
             console.warn('No Infinite Craft tab found to send update to.');
         }
 
-        // Get settings again as we need them for generation
+        // Get settings
         const settings = await chrome.storage.sync.get({
             falApiKey: '',
             replicateApiKey: '',
             imageModel: 'fal-z-image-turbo'
         });
 
-        // We don't have LLM duration here, so pass 0
-        await generateAndSendImage(lastGeneratedPrompt, tabId, startTotal, 0, settings);
+        // Start trace for regeneration
+        const traceContext = await weave.startTrace('regenerate_image', {
+            prompt: lastGeneratedPrompt
+        });
 
-        // Clear badge on success
-        chrome.action.setBadgeText({ text: '' });
+        try {
+            // Image generation
+            const startImageGen = Date.now();
+            let imageResult;
+            if (settings.imageModel.startsWith('replicate')) {
+                imageResult = await getImageFromReplicate(lastGeneratedPrompt, settings.replicateApiKey, settings.imageModel);
+            } else {
+                imageResult = await getImageFromFal(lastGeneratedPrompt, settings.falApiKey, settings.imageModel);
+            }
+            const durationImageGen = Date.now() - startImageGen;
+
+            const imageUrl = typeof imageResult === 'string' ? imageResult : imageResult.url;
+            const imageBase64 = typeof imageResult === 'object' ? imageResult.base64 : null;
+            const imageType = typeof imageResult === 'object' ? imageResult.imageType : 'jpeg';
+
+            const totalDuration = Date.now() - startTotal;
+            console.log(`Image Generation took ${durationImageGen}ms`);
+
+            // === SEND TO USER IMMEDIATELY ===
+            if (tabId) {
+                chrome.tabs.sendMessage(tabId, {
+                    action: 'updateBackground',
+                    imageUrl: imageUrl,
+                    prompt: lastGeneratedPrompt,
+                    stats: { 
+                        imageGen: durationImageGen,
+                        total: totalDuration 
+                    }
+                });
+            }
+
+            // Clear badge on success
+            chrome.action.setBadgeText({ text: '' });
+
+            // === TRACE IN BACKGROUND ===
+            (async () => {
+                try {
+                    // If no base64 from API, fetch and convert
+                    let traceBase64 = imageBase64;
+                    let traceImageType = imageType;
+                    
+                    if (!traceBase64 && imageUrl) {
+                        console.log('[Weave] Fetching image for trace...', imageUrl.substring(0, 50));
+                        try {
+                            const imgResponse = await fetch(imageUrl);
+                            if (imgResponse.ok) {
+                                // Get content type from response headers, fallback to URL detection
+                                const contentType = imgResponse.headers.get('content-type') || '';
+                                console.log('[Weave] Image content-type:', contentType);
+                                
+                                if (contentType.includes('png') || imageUrl.includes('.png')) traceImageType = 'png';
+                                else if (contentType.includes('webp') || imageUrl.includes('.webp')) traceImageType = 'webp';
+                                else if (contentType.includes('gif') || imageUrl.includes('.gif')) traceImageType = 'gif';
+                                else traceImageType = 'jpeg';
+                                
+                                // Use ArrayBuffer for more reliable binary handling
+                                const arrayBuffer = await imgResponse.arrayBuffer();
+                                const bytes = new Uint8Array(arrayBuffer);
+                                
+                                // Chunk-based base64 encoding to avoid stack overflow
+                                let binary = '';
+                                const chunkSize = 32768;
+                                for (let i = 0; i < bytes.length; i += chunkSize) {
+                                    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                                    binary += String.fromCharCode.apply(null, chunk);
+                                }
+                                traceBase64 = btoa(binary);
+                                
+                                console.log(`[Weave] Image encoded (${traceImageType}, ${Math.round(traceBase64.length / 1024)}KB, ${bytes.length} bytes)`);
+                            } else {
+                                console.warn('[Weave] Fetch failed:', imgResponse.status);
+                            }
+                        } catch (fetchErr) {
+                            console.warn('[Weave] Could not fetch image:', fetchErr);
+                        }
+                    }
+
+                    // Build data URI for image display
+                    const dataUri = traceBase64 
+                        ? `data:image/${traceImageType};base64,${traceBase64}` 
+                        : null;
+
+                    // Image child span - includes image + URL
+                    const imgContext = await weave.startChildSpan('image_generation', {
+                        prompt: lastGeneratedPrompt,
+                        model: settings.imageModel
+                    }, traceContext);
+                    
+                    let imgOutput = { 
+                        model: settings.imageModel,
+                        image_url: imageUrl
+                    };
+                    if (dataUri) {
+                        imgOutput.image = { _weaveType: 'Image', data: dataUri, imageType: traceImageType };
+                    }
+                    await weave.endChildSpan(imgContext, imgOutput, null);
+
+                    // End parent trace - image as main display
+                    const traceOutput = {
+                        image_model: settings.imageModel
+                    };
+                    if (dataUri) {
+                        traceOutput.image = { _weaveType: 'Image', data: dataUri, imageType: traceImageType };
+                    }
+                    await weave.endTrace(traceContext, traceOutput, {});
+                    
+                    console.log('[Weave] Regenerate tracing completed');
+                } catch (traceError) {
+                    console.error('[Weave] Regenerate tracing error:', traceError);
+                }
+            })();
+
+        } catch (innerError) {
+            weave.endTrace(traceContext, { error: innerError.toString() }, {}).catch(() => {});
+            throw innerError;
+        }
 
     } catch (error) {
         console.error('Error in handleRegenerateImage:', error);
@@ -239,45 +480,5 @@ async function handleRegenerateImage() {
         chrome.action.setBadgeBackgroundColor({ color: '#DB4437' });
     } finally {
         isGenerating = false;
-    }
-}
-
-async function generateAndSendImage(prompt, tabId, startTotal, durationLLM, settings) {
-    // Check if appropriate image API key is present
-    if (settings.imageModel && settings.imageModel.startsWith('fal') && !settings.falApiKey) {
-        return;
-    }
-    if (settings.imageModel && settings.imageModel.startsWith('replicate') && !settings.replicateApiKey) {
-        return;
-    }
-
-    const startImageGen = Date.now();
-
-    // Generate Image (Traced)
-    const result = await tracedGenerateImage(prompt, settings);
-    const imageUrl = result.imageUrl;
-
-    const durationImageGen = Date.now() - startImageGen;
-    console.log(`Image Generation (${settings.imageModel}) took ${durationImageGen}ms`);
-    console.log('Generated Image URL:', imageUrl);
-
-    const totalDuration = Date.now() - startTotal;
-    console.log(`Total Pipeline took ${totalDuration}ms`);
-
-    // Send Image back to Content Script
-    if (tabId) {
-        console.log('Sending updateBackground message to tab:', tabId, 'URL:', imageUrl);
-        chrome.tabs.sendMessage(tabId, {
-            action: 'updateBackground',
-            imageUrl: imageUrl,
-            prompt: prompt,
-            stats: {
-                llm: durationLLM,
-                imageGen: durationImageGen,
-                total: totalDuration
-            }
-        });
-    } else {
-        console.warn('No tabId provided to generateAndSendImage');
     }
 }
