@@ -2,7 +2,7 @@
 
 A Chrome extension that brings AI-powered image generation to [Neal Agarwal's Infinite Craft](https://neal.fun/infinite-craft/) game. Watch as your crafted elements come to life with dynamically generated backgrounds!
 
-![Weave Tracing](https://img.shields.io/badge/Traced%20with-Weave-blue?logo=weightsandbiases)
+[![Weave Tracing](https://img.shields.io/badge/Traced%20with-Weave-blue?logo=weightsandbiases)](https://wandb.ai/thursdai/infinite-fun/weave/traces?view=traces_default&peekPath=/thursdai/infinite-fun/calls/b083b0aa-ec03-4110-b9cb-2b56d3fd5861?descendentCallId%3Dc4e7ca20-837c-4185-aaaa-2dbd29d4316e%26hideTraceTree%3D0)
 
 ![1202 (1)](https://github.com/user-attachments/assets/2e390eb2-60d0-4d6c-94eb-5e4ce471da75)
 
@@ -37,7 +37,7 @@ This extension is fully instrumented with [Weights & Biases Weave](https://weave
 - Compare image generation quality and latency
 - Debug and iterate on your prompt engineering
 
-![Weave Dashboard](https://raw.githubusercontent.com/wandb/weave/main/docs/static/img/weave-hero.png)
+![Weave Dashboard](https://img.shields.io/badge/Traced%20with-Weave-blue?logo=weightsandbiases)
 
 ## Installation
 
